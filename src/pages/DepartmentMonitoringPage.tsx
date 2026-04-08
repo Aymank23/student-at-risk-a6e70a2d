@@ -4,6 +4,7 @@ import KpiCard from '@/components/KpiCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { CHART_COLORS } from '@/lib/constants';
@@ -15,12 +16,12 @@ const DepartmentMonitoringPage = () => {
   const [deptStats, setDeptStats] = useState<any[]>([]);
   const [studentAlerts, setStudentAlerts] = useState<any[]>([]);
   const [advisorPerf, setAdvisorPerf] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState<'department' | 'category'>('department');
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     let caseQuery = supabase.from('risk_cases').select('*');
-    // Chairs see only their department
     if (user?.role === 'department_chair' && user.department) {
       caseQuery = caseQuery.eq('department', user.department);
     }
@@ -38,7 +39,7 @@ const DepartmentMonitoringPage = () => {
     const followUpSet = new Set(followUps?.map(f => f.case_id) || []);
     const interventionSet = new Set(interventions?.map(f => f.case_id) || []);
 
-    // Department stats
+    // Department stats with validation
     const deptMap: Record<string, any> = {};
     const studentDeptMap: Record<string, number> = {};
     students?.forEach((s: any) => {
@@ -48,17 +49,32 @@ const DepartmentMonitoringPage = () => {
 
     cases.forEach((c) => {
       if (!deptMap[c.department]) {
-        deptMap[c.department] = { name: c.department, total: 0, assigned: 0, completed: 0, overdue: 0, totalStudents: studentDeptMap[c.department] || 0 };
+        deptMap[c.department] = {
+          name: c.department,
+          total: 0, catA: 0, catB: 0,
+          assigned: 0, completed: 0, overdue: 0,
+          totalStudents: studentDeptMap[c.department] || 0,
+        };
       }
       const d = deptMap[c.department];
       d.total++;
+      if (c.risk_category === 'Category A') d.catA++;
+      if (c.risk_category === 'Category B') d.catB++;
       if (c.assigned_advisor) d.assigned++;
       if (c.outcome_status === 'completed') d.completed++;
       const daysDiff = (Date.now() - new Date(c.created_date).getTime()) / (1000 * 60 * 60 * 24);
       if (c.meeting_status !== 'completed' && daysDiff > 14) d.overdue++;
     });
 
-    setDeptStats(Object.values(deptMap));
+    // Validate: total = catA + catB for each dept
+    Object.values(deptMap).forEach((d: any) => {
+      if (d.total !== d.catA + d.catB) {
+        console.warn(`Dept ${d.name}: total (${d.total}) !== catA (${d.catA}) + catB (${d.catB})`);
+      }
+    });
+
+    const sorted = Object.values(deptMap).sort((a: any, b: any) => b.total - a.total);
+    setDeptStats(sorted);
 
     // Student-level monitoring alerts
     const alerts: any[] = [];
@@ -75,14 +91,15 @@ const DepartmentMonitoringPage = () => {
         alerts.push({
           student_name: c.student_name,
           student_id: c.student_id,
-          advisor: c.assigned_advisor_name || 'Unassigned',
+          department: c.department,
+          advisor: c.assigned_advisor_name || 'Not Assigned',
           issues,
         });
       }
     });
     setStudentAlerts(alerts);
 
-    // Advisor performance (filtered for chairs)
+    // Advisor performance with department
     let filteredAdvisors = advisorUsers || [];
     if (user?.role === 'department_chair' && user.department) {
       filteredAdvisors = filteredAdvisors.filter(a => a.department === user.department);
@@ -92,6 +109,7 @@ const DepartmentMonitoringPage = () => {
       const myCases = cases.filter(c => c.assigned_advisor === a.user_id);
       return {
         name: a.full_name,
+        department: a.department || 'No Data',
         assigned: myCases.length,
         meetings: myCases.filter(c => c.meeting_status === 'completed').length,
         aip: myCases.filter(c => interventionSet.has(c.case_id)).length,
@@ -103,6 +121,15 @@ const DepartmentMonitoringPage = () => {
   };
 
   const isChair = user?.role === 'department_chair';
+  const grandTotal = deptStats.reduce((s, d) => s + d.total, 0);
+  const grandCatA = deptStats.reduce((s, d) => s + d.catA, 0);
+  const grandCatB = deptStats.reduce((s, d) => s + d.catB, 0);
+
+  // By category chart data
+  const categoryChartData = [
+    { name: 'Category A', value: grandCatA },
+    { name: 'Category B', value: grandCatB },
+  ];
 
   return (
     <AppLayout>
@@ -118,27 +145,99 @@ const DepartmentMonitoringPage = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KpiCard title="Departments" value={deptStats.length} icon={Building2} />
-          <KpiCard title="Total At Risk" value={deptStats.reduce((s, d) => s + d.total, 0)} icon={AlertTriangle} variant="warning" />
+          <KpiCard title="Total At Risk" value={grandTotal} subtitle={`Cat A: ${grandCatA} · Cat B: ${grandCatB}`} icon={AlertTriangle} variant="warning" />
           <KpiCard title="Total Completed" value={deptStats.reduce((s, d) => s + d.completed, 0)} icon={CheckCircle} variant="success" />
           <KpiCard title="Total Overdue" value={deptStats.reduce((s, d) => s + d.overdue, 0)} icon={Clock} variant="destructive" />
         </div>
 
+        {/* Toggle between Department and Category view */}
         <Card>
-          <CardHeader><CardTitle className="text-base font-sans font-medium">Students at Risk per Department</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-sans font-medium">Students at Risk</CardTitle>
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+                <TabsList>
+                  <TabsTrigger value="department">By Department</TabsTrigger>
+                  <TabsTrigger value="category">By Category</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={deptStats} margin={{ bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} height={60} />
-                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                <Tooltip />
-                <Legend wrapperStyle={{ paddingTop: 10 }} />
-                <Bar dataKey="total" name="Total" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="assigned" name="Assigned" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="completed" name="Completed" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="overdue" name="Overdue" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {viewMode === 'department' ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={deptStats} margin={{ bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ paddingTop: 10 }} />
+                  <Bar dataKey="catA" name="Category A" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="catB" name="Category B" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="overdue" name="Overdue" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={deptStats} margin={{ bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ paddingTop: 10 }} />
+                  <Bar dataKey="total" name="Total" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="assigned" name="Assigned" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="completed" name="Completed" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Department Comparison Table with percentages */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-sans font-medium flex items-center gap-2">
+              <Building2 className="h-4 w-4" /> Department Comparison
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Total Students</TableHead>
+                  <TableHead>At-Risk</TableHead>
+                  <TableHead>% At-Risk</TableHead>
+                  <TableHead>Cat A</TableHead>
+                  <TableHead>Cat B</TableHead>
+                  <TableHead>Assigned</TableHead>
+                  <TableHead>Completed</TableHead>
+                  <TableHead>Overdue</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deptStats.map((d) => (
+                  <TableRow key={d.name}>
+                    <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell>{d.totalStudents}</TableCell>
+                    <TableCell>{d.total}</TableCell>
+                    <TableCell>{d.totalStudents > 0 ? `${Math.round((d.total / d.totalStudents) * 100)}%` : '0%'}</TableCell>
+                    <TableCell>{d.catA}</TableCell>
+                    <TableCell>{d.catB}</TableCell>
+                    <TableCell>{d.assigned}/{d.total}</TableCell>
+                    <TableCell>{d.completed}</TableCell>
+                    <TableCell>
+                      {d.overdue > 0 ? (
+                        <Badge variant="destructive" className="text-xs">{d.overdue}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
 
@@ -155,6 +254,7 @@ const DepartmentMonitoringPage = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Advisor</TableHead>
+                    <TableHead>Department</TableHead>
                     <TableHead>Assigned</TableHead>
                     <TableHead>Meetings</TableHead>
                     <TableHead>AIP Submitted</TableHead>
@@ -165,12 +265,13 @@ const DepartmentMonitoringPage = () => {
                 <TableBody>
                   {advisorPerf.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No advisors found</TableCell>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No advisors found</TableCell>
                     </TableRow>
                   ) : (
                     advisorPerf.map((a) => (
                       <TableRow key={a.name}>
                         <TableCell className="font-medium">{a.name}</TableCell>
+                        <TableCell className="text-xs">{a.department}</TableCell>
                         <TableCell>{a.assigned}</TableCell>
                         <TableCell>{a.meetings}/{a.assigned}</TableCell>
                         <TableCell>{a.aip}/{a.assigned}</TableCell>
@@ -187,7 +288,7 @@ const DepartmentMonitoringPage = () => {
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={advisorPerf} margin={{ bottom: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} height={60} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={60} />
                   <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                   <Tooltip />
                   <Legend wrapperStyle={{ paddingTop: 10 }} />
@@ -216,6 +317,7 @@ const DepartmentMonitoringPage = () => {
                   <TableRow>
                     <TableHead>Student</TableHead>
                     <TableHead>ID</TableHead>
+                    <TableHead>Department</TableHead>
                     <TableHead>Advisor</TableHead>
                     <TableHead>Alerts</TableHead>
                   </TableRow>
@@ -225,6 +327,7 @@ const DepartmentMonitoringPage = () => {
                     <TableRow key={i}>
                       <TableCell className="font-medium">{a.student_name}</TableCell>
                       <TableCell className="font-mono text-xs">{a.student_id}</TableCell>
+                      <TableCell className="text-xs">{a.department}</TableCell>
                       <TableCell>{a.advisor}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
