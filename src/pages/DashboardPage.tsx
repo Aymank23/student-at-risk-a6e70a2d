@@ -7,13 +7,13 @@ import { supabase } from '@/lib/supabase';
 import { CHART_COLORS } from '@/lib/constants';
 import {
   AlertTriangle, Users, CheckCircle, Clock,
-  FileText, TrendingUp, UserCheck, BookOpen, HeartPulse,
+  FileText, TrendingUp, UserCheck, BookOpen,
   GraduationCap, Building2,
 } from 'lucide-react';
 import DashboardTour from '@/components/DashboardTour';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 
 interface DeptKpi {
@@ -30,7 +30,7 @@ const DashboardPage = () => {
   const [stats, setStats] = useState({
     totalFlagged: 0, categoryA: 0, categoryB: 0,
     advisorsAssigned: 0, meetingsCompleted: 0,
-    aipCompleted: 0, midtermReviews: 0, improved: 0, referralRate: 0,
+    aipCompleted: 0, midtermReviews: 0, improved: 0,
     totalStudents: 0, atRiskPct: 0,
   });
   const [deptData, setDeptData] = useState<{ name: string; count: number }[]>([]);
@@ -60,33 +60,35 @@ const DashboardPage = () => {
     const midtermDone = cases.filter((c) => c.midterm_review_status === 'completed').length;
     const improvedCount = outcomes?.filter((o) => o.final_outcome === 'improved_above_threshold').length || 0;
 
-    // Cases with at least one follow-up
     const followUpCaseIds = new Set(followUps?.map(f => f.case_id) || []);
     const followUpDone = cases.filter(c => followUpCaseIds.has(c.case_id)).length;
     const caseClosed = cases.filter(c => c.outcome_status === 'completed').length;
 
-    const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
+    // Strict KPI calculations with consistent denominators
+    const pctOfAssigned = (n: number) => assigned > 0 ? Math.round((n / assigned) * 100) : 0;
+    const pctOfMeetings = (n: number) => meetingsDone > 0 ? Math.round((n / meetingsDone) * 100) : 0;
 
     setStats({
       totalFlagged: total, categoryA: catA, categoryB: catB,
-      advisorsAssigned: pct(assigned), meetingsCompleted: pct(meetingsDone),
-      aipCompleted: pct(aipDone), midtermReviews: pct(midtermDone),
-      improved: pct(improvedCount), referralRate: 0,
+      advisorsAssigned: assigned > 0 ? Math.round((assigned / total) * 100) : 0,
+      meetingsCompleted: pctOfAssigned(meetingsDone),
+      aipCompleted: pctOfMeetings(aipDone),
+      midtermReviews: pctOfMeetings(midtermDone),
+      improved: total > 0 ? Math.round((improvedCount / total) * 100) : 0,
       totalStudents,
       atRiskPct: totalStudents > 0 ? Math.round((total / totalStudents) * 100) : 0,
     });
 
     const deptMap: Record<string, number> = {};
     cases.forEach((c) => { deptMap[c.department] = (deptMap[c.department] || 0) + 1; });
-    setDeptData(Object.entries(deptMap).map(([name, count]) => ({ name, count })));
+    setDeptData(Object.entries(deptMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count));
 
     setStatusData([
-      { name: 'Pending', value: cases.filter((c) => !c.assigned_advisor).length },
+      { name: 'Unassigned', value: cases.filter((c) => !c.assigned_advisor).length },
       { name: 'In Progress', value: cases.filter((c) => c.assigned_advisor && c.outcome_status !== 'completed').length },
-      { name: 'Completed', value: cases.filter((c) => c.outcome_status === 'completed').length },
+      { name: 'Completed', value: caseClosed },
     ]);
 
-    // Compliance funnel
     setFunnelData([
       { name: 'At-Risk Identified', value: total, fill: CHART_COLORS[0] },
       { name: 'Advisor Assigned', value: assigned, fill: CHART_COLORS[1] },
@@ -115,10 +117,10 @@ const DashboardPage = () => {
         atRisk: ar,
         catA: ca,
         catB: cb,
-        catAPct: ts > 0 ? `${Math.round((ca / ts) * 100)}%` : '—',
-        catBPct: ts > 0 ? `${Math.round((cb / ts) * 100)}%` : '—',
+        catAPct: ts > 0 ? `${Math.round((ca / ts) * 100)}%` : '0%',
+        catBPct: ts > 0 ? `${Math.round((cb / ts) * 100)}%` : '0%',
       };
-    });
+    }).sort((a, b) => b.atRisk - a.atRisk);
     setDeptKpis(kpis);
   };
 
@@ -143,10 +145,10 @@ const DashboardPage = () => {
         </div>
 
         <div data-tour="progress-section" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} icon={UserCheck} />
-          <KpiCard title="Meetings Done" value={`${stats.meetingsCompleted}%`} icon={CheckCircle} variant="success" />
-          <KpiCard title="AIP Completed" value={`${stats.aipCompleted}%`} icon={FileText} />
-          <KpiCard title="Improved" value={`${stats.improved}%`} icon={TrendingUp} variant="success" />
+          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} subtitle={`of ${stats.totalFlagged} total`} icon={UserCheck} />
+          <KpiCard title="Meetings Done" value={`${stats.meetingsCompleted}%`} subtitle="of assigned students" icon={CheckCircle} variant="success" />
+          <KpiCard title="AIP Completed" value={`${stats.aipCompleted}%`} subtitle="of students with meetings" icon={FileText} />
+          <KpiCard title="Improved" value={`${stats.improved}%`} subtitle="of total at-risk" icon={TrendingUp} variant="success" />
         </div>
 
         {/* ARIP Compliance Funnel */}
@@ -191,7 +193,7 @@ const DashboardPage = () => {
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={deptData} margin={{ bottom: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} height={60} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
                   <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                   <Tooltip />
                   <Bar dataKey="count" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
