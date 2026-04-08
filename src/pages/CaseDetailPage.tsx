@@ -13,8 +13,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   academicFactors, externalFactors, engagementFactors,
   courseStrategies, supportActivities, monitoringReqs,
+  getWorkflowState,
 } from '@/lib/constants';
-import { ArrowLeft, Save, Plus, FileDown } from 'lucide-react';
+import { ArrowLeft, Save, Plus, FileDown, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateARIPPdf } from '@/lib/generateARIPPdf';
 
@@ -28,6 +29,12 @@ const CaseDetailPage = () => {
   const [outcome, setOutcome] = useState<any>(null);
   const [newFollowUp, setNewFollowUp] = useState({ date: '', progress_notes: '' });
   const [otherOutcome, setOtherOutcome] = useState('');
+
+  // Editable student info
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editMeetingDate, setEditMeetingDate] = useState('');
 
   const [formData, setFormData] = useState({
     root_cause_academic: [] as string[],
@@ -46,6 +53,12 @@ const CaseDetailPage = () => {
   const loadCaseData = async () => {
     const { data: c } = await supabase.from('risk_cases').select('*').eq('case_id', caseId).single();
     setCaseData(c);
+
+    if (c) {
+      setEditEmail(c.student_email || '');
+      setEditPhone(c.student_phone || '');
+      setEditMeetingDate(c.date_of_meeting || '');
+    }
 
     const { data: form } = await supabase.from('intervention_forms').select('*').eq('case_id', caseId).single();
     if (form) {
@@ -77,6 +90,24 @@ const CaseDetailPage = () => {
       ...formData,
       [field]: current.includes(value) ? current.filter((v) => v !== value) : [...current, value],
     });
+  };
+
+  const saveStudentInfo = async () => {
+    const updates: any = {
+      student_email: editEmail.trim() || null,
+      student_phone: editPhone.trim() || null,
+      date_of_meeting: editMeetingDate || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('risk_cases').update(updates).eq('case_id', caseId);
+    if (error) {
+      toast.error('Failed to save student info.');
+      return;
+    }
+    toast.success('Student information updated.');
+    setEditingInfo(false);
+    loadCaseData();
   };
 
   const saveInterventionForm = async () => {
@@ -141,8 +172,11 @@ const CaseDetailPage = () => {
 
   if (!caseData) return <AppLayout><div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div></AppLayout>;
 
-  const canEditForm = (user?.role === 'advisor' && caseData.assigned_advisor === user.id) || user?.role === 'admin' || user?.role === 'department_chair';
+  const isAssignedAdvisor = user?.role === 'advisor' && caseData.assigned_advisor === user.id;
+  const canEditForm = isAssignedAdvisor || user?.role === 'admin' || user?.role === 'department_chair';
+  const canEditStudentInfo = isAssignedAdvisor;
   const canRecordOutcome = user?.role === 'admin';
+  const workflow = getWorkflowState(caseData);
 
   const updateMidtermReview = async () => {
     await supabase.from('risk_cases').update({ midterm_review_status: 'completed' }).eq('case_id', caseId);
@@ -165,14 +199,6 @@ const CaseDetailPage = () => {
     </div>
   );
 
-  const OtherItems = ({ field }: { field: keyof typeof formData }) => (
-    <>
-      {(formData[field] as string[]).filter(v => v.startsWith('Other:')).map(v => (
-        <p key={v} className="text-sm text-muted-foreground mt-1 italic">{v}</p>
-      ))}
-    </>
-  );
-
   return (
     <AppLayout>
       <div className="space-y-6 max-w-4xl">
@@ -183,7 +209,10 @@ const CaseDetailPage = () => {
             </Button>
             <div>
               <h1 className="text-2xl font-serif font-semibold">Student Academic Risk Intervention Form</h1>
-              <p className="text-sm text-muted-foreground">AKSOB — Confidential Academic Record</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-muted-foreground">AKSOB — Confidential Academic Record</p>
+                <Badge variant="outline" className="text-xs">{workflow}</Badge>
+              </div>
             </div>
           </div>
           <Button
@@ -195,22 +224,58 @@ const CaseDetailPage = () => {
           </Button>
         </div>
 
-        {/* SECTION A */}
+        {/* SECTION A — Student Info */}
         <Card>
-          <CardHeader><CardTitle className="text-base font-sans">Section A — Student Information</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-sans">Section A — Student Information</CardTitle>
+              {canEditStudentInfo && !editingInfo && (
+                <Button variant="ghost" size="sm" onClick={() => setEditingInfo(true)}>
+                  <Pencil className="h-4 w-4 mr-1" /> Edit
+                </Button>
+              )}
+            </div>
+          </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><Label className="text-muted-foreground">Student Name</Label><p className="font-medium">{caseData.student_name}</p></div>
               <div><Label className="text-muted-foreground">Student ID</Label><p className="font-mono">{caseData.student_id}</p></div>
-              <div><Label className="text-muted-foreground">Term / Semester</Label><p>{caseData.term_semester || '—'}</p></div>
-              <div><Label className="text-muted-foreground">Date of Meeting</Label><p>{caseData.date_of_meeting ? new Date(caseData.date_of_meeting).toLocaleDateString() : '—'}</p></div>
+              <div><Label className="text-muted-foreground">Term / Semester</Label><p>{caseData.term_semester || 'No Data'}</p></div>
+              <div>
+                <Label className="text-muted-foreground">Date of Meeting</Label>
+                {editingInfo ? (
+                  <Input type="date" value={editMeetingDate} onChange={(e) => setEditMeetingDate(e.target.value)} className="mt-1" />
+                ) : (
+                  <p>{caseData.date_of_meeting ? new Date(caseData.date_of_meeting).toLocaleDateString() : 'No Data'}</p>
+                )}
+              </div>
               <div><Label className="text-muted-foreground">Department</Label><p>{caseData.department}</p></div>
-              <div><Label className="text-muted-foreground">Major / Program</Label><p>{caseData.major || '—'}</p></div>
-              <div><Label className="text-muted-foreground">Student Email</Label><p>{caseData.student_email || '—'}</p></div>
-              <div><Label className="text-muted-foreground">Phone Number</Label><p>{caseData.student_phone || '—'}</p></div>
-              <div><Label className="text-muted-foreground">Assigned Special Advisor</Label><p>{caseData.assigned_advisor_name || '—'}</p></div>
-              <div><Label className="text-muted-foreground">Advisor Email</Label><p>{caseData.advisor_email || '—'}</p></div>
+              <div><Label className="text-muted-foreground">Major / Program</Label><p>{caseData.major || 'No Data'}</p></div>
+              <div>
+                <Label className="text-muted-foreground">Student Email</Label>
+                {editingInfo ? (
+                  <Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="mt-1" placeholder="student@lau.edu" />
+                ) : (
+                  <p>{caseData.student_email || 'No Data'}</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Phone Number</Label>
+                {editingInfo ? (
+                  <Input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="mt-1" placeholder="+961..." />
+                ) : (
+                  <p>{caseData.student_phone || 'No Data'}</p>
+                )}
+              </div>
+              <div><Label className="text-muted-foreground">Assigned Special Advisor</Label><p>{caseData.assigned_advisor_name || 'Not Assigned'}</p></div>
+              <div><Label className="text-muted-foreground">Advisor Email</Label><p>{caseData.advisor_email || 'No Data'}</p></div>
             </div>
+            {editingInfo && (
+              <div className="flex gap-2 mt-4 pt-4 border-t">
+                <Button size="sm" onClick={saveStudentInfo}><Save className="h-4 w-4 mr-1" /> Save Changes</Button>
+                <Button variant="outline" size="sm" onClick={() => setEditingInfo(false)}>Cancel</Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -219,8 +284,8 @@ const CaseDetailPage = () => {
           <CardHeader><CardTitle className="text-base font-sans">Section B — Academic Snapshot (from Cognos)</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><Label className="text-muted-foreground">CGPA</Label><p>{caseData.cgpa ?? '—'}</p></div>
-              <div><Label className="text-muted-foreground">Credits Completed</Label><p>{caseData.credits_completed ?? '—'}</p></div>
+              <div><Label className="text-muted-foreground">CGPA</Label><p>{caseData.cgpa ?? 'No Data'}</p></div>
+              <div><Label className="text-muted-foreground">Credits Completed</Label><p>{caseData.credits_completed ?? 'No Data'}</p></div>
               <div><Label className="text-muted-foreground">Risk Category</Label>
                 <Badge variant={caseData.risk_category === 'Category A' ? 'destructive' : 'secondary'}>{caseData.risk_category}</Badge>
                 <span className="text-xs text-muted-foreground ml-2">
@@ -228,7 +293,7 @@ const CaseDetailPage = () => {
                 </span>
               </div>
               <div><Label className="text-muted-foreground">Financial Aid</Label>
-                <p>{caseData.financial_aid === 'applicable' ? 'Applicable' : caseData.financial_aid === 'not_applicable' ? 'Not Applicable' : '—'}</p>
+                <p>{caseData.financial_aid === 'applicable' ? 'Applicable' : caseData.financial_aid === 'not_applicable' ? 'Not Applicable' : 'No Data'}</p>
               </div>
             </div>
           </CardContent>
@@ -256,17 +321,14 @@ const CaseDetailPage = () => {
             <div>
               <Label className="text-sm font-medium">1) Academic Factors (check all that apply)</Label>
               <CheckboxList items={academicFactors} field="root_cause_academic" />
-              <OtherItems field="root_cause_academic" />
             </div>
             <div>
               <Label className="text-sm font-medium">2) External / Personal Factors</Label>
               <CheckboxList items={externalFactors} field="root_cause_external" />
-              <OtherItems field="root_cause_external" />
             </div>
             <div>
               <Label className="text-sm font-medium">3) Engagement Factors</Label>
               <CheckboxList items={engagementFactors} field="root_cause_engagement" />
-              <OtherItems field="root_cause_engagement" />
             </div>
             <div>
               <Label className="text-sm font-medium">Advisor Notes / Summary of Key Causes</Label>
@@ -288,12 +350,10 @@ const CaseDetailPage = () => {
             <div>
               <Label className="text-sm font-medium">D1) Course Strategy</Label>
               <CheckboxList items={courseStrategies} field="course_strategy" />
-              <OtherItems field="course_strategy" />
             </div>
             <div>
               <Label className="text-sm font-medium">D2) Support Activities</Label>
               <CheckboxList items={supportActivities} field="support_services" />
-              <OtherItems field="support_services" />
             </div>
             <div>
               <Label className="text-sm font-medium">D3) Monitoring Requirements</Label>
@@ -355,10 +415,10 @@ const CaseDetailPage = () => {
           </CardContent>
         </Card>
 
-        {/* SECTION F */}
+        {/* SECTION F — Intervention Outcome */}
         {canRecordOutcome && (
           <Card>
-            <CardHeader><CardTitle className="text-base font-sans">Section F — Final Outcome (To be Filled by Assistant Deans)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base font-sans">Section F — Intervention Outcome</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
