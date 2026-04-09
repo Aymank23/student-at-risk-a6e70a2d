@@ -101,7 +101,11 @@ const OutcomesPage = () => {
               <h3 className="text-lg font-medium text-foreground mb-2">No Outcome Data Yet</h3>
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
                 Outcome analytics will populate once administrators record intervention outcomes for completed cases.
-                Navigate to individual case pages to record outcomes after the full intervention workflow is completed.
+                Navigate to individual case detail pages to record outcomes after the full intervention workflow
+                (assign advisor → meeting → AIP → follow-up → outcome) is completed.
+              </p>
+              <p className="text-sm text-muted-foreground mt-4">
+                To record an outcome: open a case → complete all prior steps → use Section F to select the final outcome.
               </p>
             </CardContent>
           </Card>
