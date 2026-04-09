@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -15,7 +16,7 @@ import {
   courseStrategies, supportActivities, monitoringReqs,
   getWorkflowState,
 } from '@/lib/constants';
-import { ArrowLeft, Save, Plus, FileDown, Pencil } from 'lucide-react';
+import { ArrowLeft, Save, Plus, FileDown, Pencil, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateARIPPdf } from '@/lib/generateARIPPdf';
 
@@ -175,7 +176,7 @@ const CaseDetailPage = () => {
   const isAssignedAdvisor = user?.role === 'advisor' && caseData.assigned_advisor === user.id;
   const canEditForm = isAssignedAdvisor || user?.role === 'admin' || user?.role === 'department_chair';
   const canEditStudentInfo = isAssignedAdvisor;
-  const canRecordOutcome = user?.role === 'admin';
+  const canRecordOutcome = user?.role === 'admin' || user?.role === 'department_chair';
   const workflow = getWorkflowState(caseData);
 
   const updateMidtermReview = async () => {
@@ -183,6 +184,26 @@ const CaseDetailPage = () => {
     toast.success('Midterm review marked as completed.');
     loadCaseData();
   };
+
+  // Intervention outcome display logic
+  const getOutcomeDisplay = () => {
+    if (caseData.meeting_status !== 'completed') {
+      return { label: 'No meeting recorded', description: 'Schedule and complete the advisor meeting first before an outcome can be recorded.' };
+    }
+    if (!outcome || caseData.outcome_status !== 'completed') {
+      return { label: 'Outcome pending', description: 'Meeting completed. Awaiting final outcome recording.' };
+    }
+    const labels: Record<string, string> = {
+      improved_above_threshold: 'Student improved above threshold',
+      improved_still_at_risk: 'Student improved but still at risk',
+      declined_escalated: 'Student declined / probation case escalated',
+      withdrew: 'Student withdrew from term',
+      other: outcome.other_outcome || 'Other outcome',
+    };
+    return { label: labels[outcome.final_outcome] || outcome.final_outcome, description: 'Final intervention outcome has been recorded.' };
+  };
+
+  const outcomeDisplay = getOutcomeDisplay();
 
   const CheckboxList = ({ items, field }: { items: string[]; field: keyof typeof formData }) => (
     <div className="grid grid-cols-2 gap-2 mt-2">
@@ -415,11 +436,31 @@ const CaseDetailPage = () => {
           </CardContent>
         </Card>
 
-        {/* SECTION F — Intervention Outcome */}
-        {canRecordOutcome && (
-          <Card>
-            <CardHeader><CardTitle className="text-base font-sans">Section F — Intervention Outcome</CardTitle></CardHeader>
-            <CardContent>
+        {/* SECTION F — Intervention Outcome — visible to all, editable by admin/chair */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-sans flex items-center gap-2">
+              Section F — Intervention Outcome
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  The intervention outcome reflects the final result of the advising process.
+                  It is set by administration after the full workflow is completed.
+                </TooltipContent>
+              </Tooltip>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Always show current status */}
+            <div className="mb-4 p-3 rounded-md bg-muted">
+              <p className="text-sm font-medium">{outcomeDisplay.label}</p>
+              <p className="text-xs text-muted-foreground mt-1">{outcomeDisplay.description}</p>
+            </div>
+
+            {/* Editable buttons only for admin/chair */}
+            {canRecordOutcome && (
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {[
@@ -449,9 +490,9 @@ const CaseDetailPage = () => {
                   </div>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );

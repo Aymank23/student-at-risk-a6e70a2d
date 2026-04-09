@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { CHART_COLORS, getWorkflowState } from '@/lib/constants';
+import { CHART_COLORS } from '@/lib/constants';
 import { Users, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import AdvisorWorkloadTour from '@/components/AdvisorWorkloadTour';
@@ -45,11 +45,11 @@ const AdvisorWorkloadPage = () => {
 
     const advisorStats = filteredUsers.map((u) => {
       const myCases = cases.filter((c) => c.assigned_advisor === u.user_id);
-      // Workflow-based metrics
-      const pendingMeeting = myCases.filter(c => c.meeting_status !== 'completed').length;
+      const pendingMeeting = myCases.filter(c => c.meeting_status !== 'completed' && c.outcome_status !== 'completed').length;
       const meetingCompleted = myCases.filter(c => c.meeting_status === 'completed').length;
       const followUpRequired = myCases.filter(c => c.aip_status === 'completed' && !followUpSet.has(c.case_id)).length;
       const caseClosed = myCases.filter(c => c.outcome_status === 'completed').length;
+      const followUpsDone = myCases.filter(c => followUpSet.has(c.case_id)).length;
 
       return {
         name: u.full_name,
@@ -59,12 +59,8 @@ const AdvisorWorkloadPage = () => {
         meetingCompleted,
         aipSubmitted: myCases.filter(c => interventionSet.has(c.case_id)).length,
         followUpRequired,
-        followUpsDone: myCases.filter(c => followUpSet.has(c.case_id)).length,
+        followUpsDone,
         caseClosed,
-        overdue: myCases.filter((c) => {
-          const daysDiff = (Date.now() - new Date(c.created_date).getTime()) / (1000 * 60 * 60 * 24);
-          return c.meeting_status !== 'completed' && daysDiff > 14;
-        }).length,
       };
     });
 
@@ -73,7 +69,7 @@ const AdvisorWorkloadPage = () => {
       name: a.name,
       'Pending Meeting': a.pendingMeeting,
       'Meeting Completed': a.meetingCompleted,
-      'Follow-Up Required': a.followUpRequired,
+      'Follow-Up Done': a.followUpsDone,
       'Case Closed': a.caseClosed,
     })));
 
@@ -88,8 +84,8 @@ const AdvisorWorkloadPage = () => {
 
   const totalAssigned = advisors.reduce((s, a) => s + a.assigned, 0);
   const totalPending = advisors.reduce((s, a) => s + a.pendingMeeting, 0);
-  const totalOverdue = advisors.reduce((s, a) => s + a.overdue, 0);
-  const totalCompleted = advisors.reduce((s, a) => s + a.caseClosed, 0);
+  const totalFollowUpsDone = advisors.reduce((s, a) => s + a.followUpsDone, 0);
+  const totalClosed = advisors.reduce((s, a) => s + a.caseClosed, 0);
 
   const isDeptChair = user?.role === 'department_chair';
 
@@ -119,8 +115,8 @@ const AdvisorWorkloadPage = () => {
         <div data-tour="workload-kpis" className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KpiCard title="Assigned Cases" value={totalAssigned} icon={Users} />
           <KpiCard title="Pending Meetings" value={totalPending} icon={Clock} variant="warning" />
-          <KpiCard title="Overdue Cases" value={totalOverdue} icon={AlertTriangle} variant="destructive" />
-          <KpiCard title="Cases Closed" value={totalCompleted} icon={CheckCircle} variant="success" />
+          <KpiCard title="Follow-Ups Done" value={totalFollowUpsDone} icon={CheckCircle} variant="success" />
+          <KpiCard title="Cases Closed" value={totalClosed} icon={CheckCircle} variant="success" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -136,7 +132,7 @@ const AdvisorWorkloadPage = () => {
                   <Legend wrapperStyle={{ paddingTop: 10 }} />
                   <Bar dataKey="Pending Meeting" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
                   <Bar dataKey="Meeting Completed" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Follow-Up Required" fill={CHART_COLORS[4]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Follow-Up Done" fill={CHART_COLORS[4]} radius={[4, 4, 0, 0]} />
                   <Bar dataKey="Case Closed" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>

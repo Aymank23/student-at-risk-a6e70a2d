@@ -4,7 +4,7 @@ import KpiCard from '@/components/KpiCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { CHART_COLORS } from '@/lib/constants';
@@ -39,7 +39,7 @@ const DepartmentMonitoringPage = () => {
     const followUpSet = new Set(followUps?.map(f => f.case_id) || []);
     const interventionSet = new Set(interventions?.map(f => f.case_id) || []);
 
-    // Department stats with validation
+    // Department stats — use mutually exclusive workflow states
     const deptMap: Record<string, any> = {};
     const studentDeptMap: Record<string, number> = {};
     students?.forEach((s: any) => {
@@ -52,7 +52,8 @@ const DepartmentMonitoringPage = () => {
         deptMap[c.department] = {
           name: c.department,
           total: 0, catA: 0, catB: 0,
-          assigned: 0, completed: 0, overdue: 0,
+          unassigned: 0, pendingMeeting: 0,
+          meetingDone: 0, caseClosed: 0,
           totalStudents: studentDeptMap[c.department] || 0,
         };
       }
@@ -60,16 +61,16 @@ const DepartmentMonitoringPage = () => {
       d.total++;
       if (c.risk_category === 'Category A') d.catA++;
       if (c.risk_category === 'Category B') d.catB++;
-      if (c.assigned_advisor) d.assigned++;
-      if (c.outcome_status === 'completed') d.completed++;
-      const daysDiff = (Date.now() - new Date(c.created_date).getTime()) / (1000 * 60 * 60 * 24);
-      if (c.meeting_status !== 'completed' && daysDiff > 14) d.overdue++;
-    });
 
-    // Validate: total = catA + catB for each dept
-    Object.values(deptMap).forEach((d: any) => {
-      if (d.total !== d.catA + d.catB) {
-        console.warn(`Dept ${d.name}: total (${d.total}) !== catA (${d.catA}) + catB (${d.catB})`);
+      // Mutually exclusive states that sum to total
+      if (c.outcome_status === 'completed') {
+        d.caseClosed++;
+      } else if (c.meeting_status === 'completed') {
+        d.meetingDone++;
+      } else if (c.assigned_advisor) {
+        d.pendingMeeting++;
+      } else {
+        d.unassigned++;
       }
     });
 
@@ -125,12 +126,6 @@ const DepartmentMonitoringPage = () => {
   const grandCatA = deptStats.reduce((s, d) => s + d.catA, 0);
   const grandCatB = deptStats.reduce((s, d) => s + d.catB, 0);
 
-  // By category chart data
-  const categoryChartData = [
-    { name: 'Category A', value: grandCatA },
-    { name: 'Category B', value: grandCatB },
-  ];
-
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -146,8 +141,8 @@ const DepartmentMonitoringPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KpiCard title="Departments" value={deptStats.length} icon={Building2} />
           <KpiCard title="Total At Risk" value={grandTotal} subtitle={`Cat A: ${grandCatA} · Cat B: ${grandCatB}`} icon={AlertTriangle} variant="warning" />
-          <KpiCard title="Total Completed" value={deptStats.reduce((s, d) => s + d.completed, 0)} icon={CheckCircle} variant="success" />
-          <KpiCard title="Total Overdue" value={deptStats.reduce((s, d) => s + d.overdue, 0)} icon={Clock} variant="destructive" />
+          <KpiCard title="Cases Closed" value={deptStats.reduce((s, d) => s + d.caseClosed, 0)} icon={CheckCircle} variant="success" />
+          <KpiCard title="Unassigned" value={deptStats.reduce((s, d) => s + d.unassigned, 0)} icon={Clock} variant="destructive" />
         </div>
 
         {/* Toggle between Department and Category view */}
@@ -174,7 +169,6 @@ const DepartmentMonitoringPage = () => {
                   <Legend wrapperStyle={{ paddingTop: 10 }} />
                   <Bar dataKey="catA" name="Category A" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
                   <Bar dataKey="catB" name="Category B" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="overdue" name="Overdue" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -186,15 +180,15 @@ const DepartmentMonitoringPage = () => {
                   <Tooltip />
                   <Legend wrapperStyle={{ paddingTop: 10 }} />
                   <Bar dataKey="total" name="Total" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="assigned" name="Assigned" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="completed" name="Completed" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="unassigned" name="Unassigned" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="caseClosed" name="Closed" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
 
-        {/* Department Comparison Table with percentages */}
+        {/* Department Comparison — mutually exclusive states that sum to total */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-sans font-medium flex items-center gap-2">
@@ -209,11 +203,10 @@ const DepartmentMonitoringPage = () => {
                   <TableHead>Total Students</TableHead>
                   <TableHead>At-Risk</TableHead>
                   <TableHead>% At-Risk</TableHead>
-                  <TableHead>Cat A</TableHead>
-                  <TableHead>Cat B</TableHead>
-                  <TableHead>Assigned</TableHead>
-                  <TableHead>Completed</TableHead>
-                  <TableHead>Overdue</TableHead>
+                  <TableHead>Unassigned</TableHead>
+                  <TableHead>Pending Meeting</TableHead>
+                  <TableHead>Meeting Done</TableHead>
+                  <TableHead>Case Closed</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -223,17 +216,10 @@ const DepartmentMonitoringPage = () => {
                     <TableCell>{d.totalStudents}</TableCell>
                     <TableCell>{d.total}</TableCell>
                     <TableCell>{d.totalStudents > 0 ? `${Math.round((d.total / d.totalStudents) * 100)}%` : '0%'}</TableCell>
-                    <TableCell>{d.catA}</TableCell>
-                    <TableCell>{d.catB}</TableCell>
-                    <TableCell>{d.assigned}/{d.total}</TableCell>
-                    <TableCell>{d.completed}</TableCell>
-                    <TableCell>
-                      {d.overdue > 0 ? (
-                        <Badge variant="destructive" className="text-xs">{d.overdue}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </TableCell>
+                    <TableCell>{d.unassigned}</TableCell>
+                    <TableCell>{d.pendingMeeting}</TableCell>
+                    <TableCell>{d.meetingDone}</TableCell>
+                    <TableCell>{d.caseClosed}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
