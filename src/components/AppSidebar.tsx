@@ -45,7 +45,7 @@ const AppSidebar = ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () 
       {/* Logo */}
       <div className="p-4 border-b border-sidebar-border flex items-center gap-3">
         {!collapsed && (
-          <img src={aksobLogo} alt="AKSOB" className="h-12 object-contain brightness-0 invert" />
+          <img src={aksobLogo} alt="AKSOB — LAU Adnan Kassar School of Business" className="h-10 object-contain" />
         )}
         <button
           onClick={onToggle}
