@@ -155,7 +155,20 @@ const UserManagementPage = () => {
               </div>
               <div className="space-y-2">
                 <Label>Department</Label>
-                <Input value={newUser.department} onChange={(e) => setNewUser({ ...newUser, department: e.target.value })} placeholder="e.g. Marketing, Finance..." />
+                <Select value={newUser.department || 'none'} onValueChange={(v) => setNewUser({ ...newUser, department: v === 'none' ? '' : v })}>
+                  <SelectTrigger><SelectValue placeholder="Select department..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Department</SelectItem>
+                    <SelectItem value="Marketing">Marketing</SelectItem>
+                    <SelectItem value="Finance">Finance</SelectItem>
+                    <SelectItem value="Management">Management</SelectItem>
+                    <SelectItem value="Accounting">Accounting</SelectItem>
+                    <SelectItem value="Economics">Economics</SelectItem>
+                    <SelectItem value="International Business">International Business</SelectItem>
+                    <SelectItem value="Information Technology">Information Technology</SelectItem>
+                    <SelectItem value="Hospitality & Tourism">Hospitality &amp; Tourism</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <Button onClick={createUser} className="w-full">Create User</Button>
             </div>
