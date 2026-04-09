@@ -289,8 +289,8 @@ const CasesPage = () => {
                   <TableHead>AIP</TableHead>
                   <TableHead>
                     <Tooltip>
-                      <TooltipTrigger asChild><span className="cursor-help">Outcome</span></TooltipTrigger>
-                      <TooltipContent>Intervention Outcome — based on meeting and final assessment</TooltipContent>
+                      <TooltipTrigger asChild><span className="cursor-help">Intervention Outcome</span></TooltipTrigger>
+                      <TooltipContent>Based on meeting completion and final assessment by administration</TooltipContent>
                     </Tooltip>
                   </TableHead>
                   <TableHead>Workflow</TableHead>

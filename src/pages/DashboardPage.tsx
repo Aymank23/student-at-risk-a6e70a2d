@@ -3,6 +3,7 @@ import AppLayout from '@/components/AppLayout';
 import KpiCard from '@/components/KpiCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
 import { CHART_COLORS } from '@/lib/constants';
 import {
@@ -13,7 +14,7 @@ import {
 import DashboardTour from '@/components/DashboardTour';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 
 interface DeptKpi {
@@ -32,8 +33,10 @@ const DashboardPage = () => {
     advisorsAssigned: 0, meetingsCompleted: 0,
     aipCompleted: 0, midtermReviews: 0, improved: 0,
     totalStudents: 0, atRiskPct: 0,
+    meetingCount: 0, assignedCount: 0, aipCount: 0, meetingDoneCount: 0,
   });
-  const [deptData, setDeptData] = useState<{ name: string; count: number }[]>([]);
+  const [deptData, setDeptData] = useState<{ name: string; catA: number; catB: number }[]>([]);
+  const [deptViewMode, setDeptViewMode] = useState<'department' | 'category'>('department');
   const [statusData, setStatusData] = useState<{ name: string; value: number }[]>([]);
   const [funnelData, setFunnelData] = useState<{ name: string; value: number; fill: string }[]>([]);
   const [deptKpis, setDeptKpis] = useState<DeptKpi[]>([]);
@@ -64,24 +67,37 @@ const DashboardPage = () => {
     const followUpDone = cases.filter(c => followUpCaseIds.has(c.case_id)).length;
     const caseClosed = cases.filter(c => c.outcome_status === 'completed').length;
 
-    // Strict KPI calculations with consistent denominators
-    const pctOfAssigned = (n: number) => assigned > 0 ? Math.round((n / assigned) * 100) : 0;
-    const pctOfMeetings = (n: number) => meetingsDone > 0 ? Math.round((n / meetingsDone) * 100) : 0;
-
+    // Strict KPI calculations
+    // Advisors Assigned % = assigned / total
+    // Meetings Done % = meetingsDone / assigned (of those assigned, how many met)
+    // AIP Completed % = aipDone / meetingsDone (of those who met, how many have AIP)
     setStats({
       totalFlagged: total, categoryA: catA, categoryB: catB,
-      advisorsAssigned: assigned > 0 ? Math.round((assigned / total) * 100) : 0,
-      meetingsCompleted: pctOfAssigned(meetingsDone),
-      aipCompleted: pctOfMeetings(aipDone),
-      midtermReviews: pctOfMeetings(midtermDone),
+      advisorsAssigned: total > 0 ? Math.round((assigned / total) * 100) : 0,
+      meetingsCompleted: assigned > 0 ? Math.round((meetingsDone / assigned) * 100) : 0,
+      aipCompleted: meetingsDone > 0 ? Math.round((aipDone / meetingsDone) * 100) : 0,
+      midtermReviews: meetingsDone > 0 ? Math.round((midtermDone / meetingsDone) * 100) : 0,
       improved: total > 0 ? Math.round((improvedCount / total) * 100) : 0,
       totalStudents,
       atRiskPct: totalStudents > 0 ? Math.round((total / totalStudents) * 100) : 0,
+      meetingCount: meetingsDone,
+      assignedCount: assigned,
+      aipCount: aipDone,
+      meetingDoneCount: meetingsDone,
     });
 
-    const deptMap: Record<string, number> = {};
-    cases.forEach((c) => { deptMap[c.department] = (deptMap[c.department] || 0) + 1; });
-    setDeptData(Object.entries(deptMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count));
+    // Department data with category breakdown
+    const deptMap: Record<string, { catA: number; catB: number }> = {};
+    cases.forEach((c) => {
+      if (!deptMap[c.department]) deptMap[c.department] = { catA: 0, catB: 0 };
+      if (c.risk_category === 'Category A') deptMap[c.department].catA++;
+      else deptMap[c.department].catB++;
+    });
+    setDeptData(
+      Object.entries(deptMap)
+        .map(([name, d]) => ({ name, catA: d.catA, catB: d.catB }))
+        .sort((a, b) => (b.catA + b.catB) - (a.catA + a.catB))
+    );
 
     setStatusData([
       { name: 'Unassigned', value: cases.filter((c) => !c.assigned_advisor).length },
@@ -145,9 +161,9 @@ const DashboardPage = () => {
         </div>
 
         <div data-tour="progress-section" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} subtitle={`of ${stats.totalFlagged} total`} icon={UserCheck} />
-          <KpiCard title="Meetings Done" value={`${stats.meetingsCompleted}%`} subtitle="of assigned students" icon={CheckCircle} variant="success" />
-          <KpiCard title="AIP Completed" value={`${stats.aipCompleted}%`} subtitle="of students with meetings" icon={FileText} />
+          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} subtitle={`${stats.assignedCount} of ${stats.totalFlagged} students`} icon={UserCheck} />
+          <KpiCard title="Meetings Done" value={`${stats.meetingsCompleted}%`} subtitle={`${stats.meetingCount} of ${stats.assignedCount} assigned`} icon={CheckCircle} variant="success" />
+          <KpiCard title="AIP Completed" value={`${stats.aipCompleted}%`} subtitle={`${stats.aipCount} of ${stats.meetingDoneCount} with meetings`} icon={FileText} />
           <KpiCard title="Improved" value={`${stats.improved}%`} subtitle="of total at-risk" icon={TrendingUp} variant="success" />
         </div>
 
@@ -185,23 +201,51 @@ const DashboardPage = () => {
         </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Students at Risk by Department / Category toggle */}
           <Card data-tour="dept-chart">
             <CardHeader>
-              <CardTitle className="text-base font-sans font-medium">Students at Risk by Department</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-sans font-medium">Students at Risk</CardTitle>
+                <Tabs value={deptViewMode} onValueChange={(v) => setDeptViewMode(v as any)}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="department" className="text-xs px-2 py-1">By Department</TabsTrigger>
+                    <TabsTrigger value="category" className="text-xs px-2 py-1">By Category</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={deptData} margin={{ bottom: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
-                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-                </BarChart>
+                {deptViewMode === 'department' ? (
+                  <BarChart data={deptData} margin={{ bottom: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} height={70} />
+                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="catA" name="Category A" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="catB" name="Category B" fill={CHART_COLORS[2]} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                ) : (
+                  <BarChart data={[
+                    { name: 'Category A', value: stats.categoryA },
+                    { name: 'Category B', value: stats.categoryB },
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="value" name="Students" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]}>
+                      <Cell fill={CHART_COLORS[0]} />
+                      <Cell fill={CHART_COLORS[2]} />
+                    </Bar>
+                  </BarChart>
+                )}
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
+          {/* Case Status Distribution - fix overlapping labels */}
           <Card data-tour="status-chart">
             <CardHeader>
               <CardTitle className="text-base font-sans font-medium">Case Status Distribution</CardTitle>
@@ -213,17 +257,22 @@ const DashboardPage = () => {
                     data={statusData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
+                    innerRadius={55}
+                    outerRadius={85}
                     dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                    labelLine={{ strokeWidth: 1 }}
+                    label={false}
                   >
                     {statusData.map((_, index) => (
                       <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value: number) => value} />
+                  <Legend
+                    formatter={(value, entry: any) => {
+                      const item = statusData.find(s => s.name === value);
+                      return `${value}: ${item?.value || 0}`;
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </CardContent>
