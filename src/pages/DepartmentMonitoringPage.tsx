@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
+import { fetchAllRows } from '@/lib/fetchAll';
 import { useAuth } from '@/contexts/AuthContext';
 import { CHART_COLORS } from '@/lib/constants';
 import { Building2, AlertTriangle, CheckCircle, Clock, Users } from 'lucide-react';
@@ -26,13 +27,14 @@ const DepartmentMonitoringPage = () => {
       caseQuery = caseQuery.eq('department', user.department);
     }
 
-    const [{ data: cases }, { data: students }, { data: advisorUsers }, { data: followUps }, { data: interventions }] = await Promise.all([
-      caseQuery,
-      supabase.from('students').select('*'),
-      supabase.from('app_users').select('*').eq('role', 'advisor').eq('status', 'active'),
-      supabase.from('follow_ups').select('case_id'),
-      supabase.from('intervention_forms').select('case_id'),
+    const [caseData, students, advisorUsers, followUps, interventions] = await Promise.all([
+      caseQuery.then(r => r.data || []),
+      fetchAllRows('students'),
+      supabase.from('app_users').select('*').eq('role', 'advisor').eq('status', 'active').then(r => r.data || []),
+      fetchAllRows('follow_ups', 'case_id'),
+      fetchAllRows('intervention_forms', 'case_id'),
     ]);
+    const cases = caseData as any[];
 
     if (!cases) return;
 
