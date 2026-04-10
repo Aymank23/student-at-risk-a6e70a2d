@@ -36,15 +36,15 @@ const DepartmentMonitoringPage = () => {
     ]);
     const cases = caseData as any[];
 
-    if (!cases) return;
+    if (!cases.length) return;
 
-    const followUpSet = new Set(followUps?.map(f => f.case_id) || []);
-    const interventionSet = new Set(interventions?.map(f => f.case_id) || []);
+    const followUpSet = new Set(followUps.map(f => f.case_id));
+    const interventionSet = new Set(interventions.map(f => f.case_id));
 
     // Department stats — use mutually exclusive workflow states
     const deptMap: Record<string, any> = {};
     const studentDeptMap: Record<string, number> = {};
-    students?.forEach((s: any) => {
+    students.forEach((s: any) => {
       if (user?.role === 'department_chair' && user.department && s.department !== user.department) return;
       studentDeptMap[s.department] = (studentDeptMap[s.department] || 0) + 1;
     });
