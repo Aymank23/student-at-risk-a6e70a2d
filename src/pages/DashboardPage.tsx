@@ -62,9 +62,9 @@ const DashboardPage = () => {
     const meetingsDone = cases.filter((c) => c.meeting_status === 'completed').length;
     const aipDone = cases.filter((c) => c.aip_status === 'completed').length;
     const midtermDone = cases.filter((c) => c.midterm_review_status === 'completed').length;
-    const improvedCount = outcomes?.filter((o) => o.final_outcome === 'improved_above_threshold').length || 0;
+    const improvedCount = outcomes.filter((o) => o.final_outcome === 'improved_above_threshold').length;
 
-    const followUpCaseIds = new Set(followUps?.map(f => f.case_id) || []);
+    const followUpCaseIds = new Set(followUps.map(f => f.case_id));
     const followUpDone = cases.filter(c => followUpCaseIds.has(c.case_id)).length;
     const caseClosed = cases.filter(c => c.outcome_status === 'completed').length;
 
@@ -117,7 +117,7 @@ const DashboardPage = () => {
 
     // Department KPIs
     const deptStudentMap: Record<string, number> = {};
-    students?.forEach((s: any) => {
+    students.forEach((s: any) => {
       deptStudentMap[s.department] = (deptStudentMap[s.department] || 0) + 1;
     });
 
