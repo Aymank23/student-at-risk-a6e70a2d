@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
+import { fetchAllRows } from '@/lib/fetchAll';
 import { CHART_COLORS } from '@/lib/constants';
 import {
   AlertTriangle, Users, CheckCircle, Clock,
@@ -44,16 +45,16 @@ const DashboardPage = () => {
   useEffect(() => { loadDashboardData(); }, []);
 
   const loadDashboardData = async () => {
-    const [{ data: cases }, { data: outcomes }, { data: students }, { data: followUps }] = await Promise.all([
-      supabase.from('risk_cases').select('*'),
-      supabase.from('outcomes').select('*'),
-      supabase.from('students').select('*'),
-      supabase.from('follow_ups').select('case_id'),
+    const [cases, outcomes, students, followUps] = await Promise.all([
+      fetchAllRows('risk_cases'),
+      fetchAllRows('outcomes'),
+      fetchAllRows('students'),
+      fetchAllRows('follow_ups', 'case_id'),
     ]);
 
-    if (!cases) return;
+    if (!cases.length) return;
 
-    const totalStudents = students?.length || 0;
+    const totalStudents = students.length;
     const total = cases.length;
     const catA = cases.filter((c) => c.risk_category === 'Category A').length;
     const catB = cases.filter((c) => c.risk_category === 'Category B').length;
