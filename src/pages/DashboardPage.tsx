@@ -52,8 +52,6 @@ const DashboardPage = () => {
       fetchAllRows('follow_ups', 'case_id'),
     ]);
 
-    if (!cases.length) return;
-
     const totalStudents = students.length;
     const total = cases.length;
     const catA = cases.filter((c) => c.risk_category === 'Category A').length;
@@ -115,7 +113,7 @@ const DashboardPage = () => {
       { name: 'Case Closed', value: caseClosed, fill: CHART_COLORS[0] },
     ]);
 
-    // Department KPIs
+    // Department KPIs — show category % relative to at-risk in that department
     const deptStudentMap: Record<string, number> = {};
     students.forEach((s: any) => {
       deptStudentMap[s.department] = (deptStudentMap[s.department] || 0) + 1;
@@ -134,8 +132,8 @@ const DashboardPage = () => {
         atRisk: ar,
         catA: ca,
         catB: cb,
-        catAPct: ts > 0 ? `${Math.round((ca / ts) * 100)}%` : '0%',
-        catBPct: ts > 0 ? `${Math.round((cb / ts) * 100)}%` : '0%',
+        catAPct: ar > 0 ? `${Math.round((ca / ar) * 100)}%` : '0%',
+        catBPct: ar > 0 ? `${Math.round((cb / ar) * 100)}%` : '0%',
       };
     }).sort((a, b) => b.atRisk - a.atRisk);
     setDeptKpis(kpis);
@@ -162,7 +160,7 @@ const DashboardPage = () => {
         </div>
 
         <div data-tour="progress-section" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} subtitle={`${stats.assignedCount} of ${stats.totalFlagged} students`} icon={UserCheck} />
+          <KpiCard title="Advisors Assigned" value={`${stats.advisorsAssigned}%`} subtitle={`${stats.assignedCount} of ${stats.totalFlagged} at-risk`} icon={UserCheck} />
           <KpiCard title="Meetings Done" value={`${stats.meetingsCompleted}%`} subtitle={`${stats.meetingCount} of ${stats.assignedCount} assigned`} icon={CheckCircle} variant="success" />
           <KpiCard title="AIP Completed" value={`${stats.aipCompleted}%`} subtitle={`${stats.aipCount} of ${stats.meetingDoneCount} with meetings`} icon={FileText} />
           <KpiCard title="Improved" value={`${stats.improved}%`} subtitle="of total at-risk" icon={TrendingUp} variant="success" />
@@ -246,7 +244,7 @@ const DashboardPage = () => {
             </CardContent>
           </Card>
 
-          {/* Case Status Distribution - fix overlapping labels */}
+          {/* Case Status Distribution */}
           <Card data-tour="status-chart">
             <CardHeader>
               <CardTitle className="text-base font-sans font-medium">Case Status Distribution</CardTitle>
